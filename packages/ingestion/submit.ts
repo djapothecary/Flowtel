@@ -8,11 +8,14 @@ async function submit() {
     console.log("Fetching event IDs for submission ...");
     const res = await pool.query('SELECT id FROM events ORDER BY processed_at ASC');
     const ids = res.rows.map(r => r.id).join('\n');
+    const repoUrl = "https://github.com/djapothecary/Flowtel";
+    const submissionUrl = `${process.env.API_URL}/submissions?github_repo=${encodeURIComponent(repoUrl)}`;
+
 
     //  2.  Submit via the API (Option 1: Plain Text)
     try {
         const response = await axios.post(
-            `${process.env.API_URL}/submissions?github_repo=https://github.com/djapothecary/Flowtel`,
+            submissionUrl,
             ids,
             {
                 headers: {
