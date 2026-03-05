@@ -81,6 +81,12 @@ async function run() {
 
     // 1. Resumability: Get last successful cursor
     const stateRes = await pool.query('SELECT cursor_value FROM ingestion_state WHERE id = 1');
+
+    // --- TEMPORARY TESTING SPEED BUMP ---
+    //  running too fast to test stopping/resume, intentionally pausing
+    console.log(`[DEBUG] Sector Sync Complete. Pause for manual interrupt...`);
+    await new Promise(r => setTimeout(r, 2000)); // 2-second window to hit Ctrl+C
+
     let currentCursor: string | null = stateRes.rows[0]?.cursor_value || null;
 
     let totalIngested = 0;
