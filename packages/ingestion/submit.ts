@@ -12,11 +12,11 @@ async function submit() {
     //  2.  Submit via the API (Option 1: Plain Text)
     try {
         const response = await axios.post(
-            `${process.env.API_URL}/submissions?github_repo=MY_REPO_URL`,
+            `${process.env.API_URL}/submissions?github_repo=https://github.com/djapothecary/Flowtel`,
             ids,
             {
                 headers: {
-                    'X-API_Key': process.env.API_KEY,
+                    'X-API-Key': process.env.API_KEY,
                     'Content-Type': 'text/plain'
                 }
             }

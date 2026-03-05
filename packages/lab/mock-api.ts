@@ -28,7 +28,7 @@ v1Router.get('/events', (req, res) => {
     // We'll simulate 10,000 events for this lab test
     // Passed, increasing to 50000
     // const MAX_LAB_EVENTS = 10000;
-    const MAX_LAB_EVENTS = 500000;
+    const MAX_LAB_EVENTS = 3000000;
 
     for (let i = 0; i < limit && (cursor + i) < MAX_LAB_EVENTS; i++) {
         events.push({
