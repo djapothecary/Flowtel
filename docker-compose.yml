@@ -1,23 +1,37 @@
-version: '3.0'
+
 services:
-  db:
-    image: postgres:15
+  postgres:
+    image: postgres:16-alpine
+    container_name: assignment-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: datasync
+      POSTGRES_DB: ingestion
+    ports:
+      - "5434:5432"
+    volumes:
+      - assignment_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
-    ports:
-      - "5434:5432" # Host:Container
+    networks:
+      - assignment-network
 
   ingestion-service:
     build: .
     depends_on:
-      db:
-        condition: service_healthy # VITAL: Wait for the healthcheck to pass
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
+    networks:
+      - assignment-network
+
+volumes:
+  assignment_postgres_data:
+
+networks:
+  assignment-network:
+    driver: bridge

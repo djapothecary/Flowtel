@@ -1,15 +1,15 @@
 import axios from 'axios';
 import { Pool } from 'pg';
 import pLimit from 'p-limit';
-import dotenv from 'dotenv';
+// import dotenv from 'dotenv';
 
-dotenv.config();
+// dotenv.config();
 
 // ---  CONFIGURATION  ---
 const API_BASE = process.env.API_URL || 'http://localhost:3000/api/v1';
 const API_KEY = process.env.API_KEY || 'MOCK_KEY';
-const CONCURRENCY_LIMIT = 10;   // Matches DB pool size or API thread count
-const BATCH_FLUSH_SIZE = 5000;
+const CONCURRENCY_LIMIT = 2;   // Matches DB pool size or API thread count
+const BATCH_FLUSH_SIZE = 1000;
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || 'postgresql://postgres@localhost:5434/postgres',
@@ -95,33 +95,36 @@ async function run() {
 
     while(true) {
         try {
-            // 2. FETCH DATA
             const url = `${API_BASE}/events?cursor=${currentCursor || ''}&limit=1000`;
 
-            //  limiting for console sanity for testing
-            // const url = `${API_BASE}/events?cursor=${currentCursor || ''}&limit=10`;
-            console.log(`[DEBUG] Transmitting to: ${url}`);
+            const response = await axios.get(url, {
+                headers: {
+                    'X-API-Key': API_KEY,
+                    'User-Agent': 'Refinery-Ingestion-Engine/1.0'
+                }
+            });
 
-            const response = await axios.get(url, { headers: { 'X-API-Key': API_KEY } });
+            // ARCHITECT'S FIX: Aligning with the discovered API Schema
+            const events = response.data.data;
+            const pagination = response.data.pagination;
+            const meta = response.data.meta;
 
-            const { events, next_cursor } = response.data;
-            if (!events || events.length === 0) break;
+            if (!events || events.length === 0) {
+                console.log("[SYSTEM] Sector empty. Terminating scan.");
+                break;
+            }
 
             buffer.push(...events);
             totalIngested += events.length;
 
-            // 3. PIPELINE PERSISTENCE
+            // 3. PIPELINE PERSISTENCE (Existing logic)
             if (buffer.length >= BATCH_FLUSH_SIZE) {
-                // ARCHITECT'S DESCISON: Snapshot the buffer so the network loop can clear it
-                // and keep fetching immediately without waiting for the DB write.
                 const snapshot = [...buffer];
                 const capturedCursor = currentCursor;
                 buffer = [];
 
-                // Add the flush task to the 'Referee's' queue
                 const task = limit(async () => {
                     await flushBuffer(snapshot);
-                    // Only update the 'resumable' state once the DB write is confirmed
                     await pool.query(
                         'INSERT INTO ingestion_state (id, cursor_value) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET cursor_value = $1',
                         [capturedCursor]
@@ -129,27 +132,49 @@ async function run() {
                 });
 
                 flushTasks.push(task);
-                console.log(`[HUD] Progress: ${totalIngested.toLocaleString()} events in pipeline...`);
+
+                // Log with the total count from 'meta' to show progress against the 3M goal
+                const progress = ((totalIngested / meta.total) * 100).toFixed(2);
+                console.log(`[HUD] Progress: ${totalIngested.toLocaleString()} / ${meta.total.toLocaleString()} (${progress}%)`);
             }
 
-            if (!next_cursor) break;
-            currentCursor = next_cursor;
+            // Move to next cursor
+            if (!pagination.hasMore || !pagination.nextCursor) break;
+            currentCursor = pagination.nextCursor;
+
+            // ARCHITECT'S FIX: The 'Steady Hand' Delay
+            // This ensures we don't trigger the burst governor again.
+            const SUSTAINED_DELAY = 500; // 500ms gap between batches
+            await new Promise(r => setTimeout(r, SUSTAINED_DELAY));
 
         } catch (error: any) {
             if (error.response?.status === 404 || error.message.endsWith("404")) {
                     console.error(`[FATAL] Route not found (404). Check API_BASE path: ${API_BASE}`);
                     process.exit(1); // Stop the engine so it doesn't keep "blowing up"
                 }
+
             //  Http 429 Too many requests:
             //  indicates that the user has sent too many requests within a specified amount of time
             if (error.response?.status === 429) {
-                console.log("Rate limited. Pausing for 5 seconds...");
-                await new Promise(r => setTimeout(r, 5000));
+                    // If we hit a 429, the 'Ref' calls a major timeout.
+                    console.warn(`[GOVERNOR] Sustained limit exceeded. Initiating 60s System Reset...`);
+
+                    // Wipe current session state if needed and wait
+                    await new Promise(r => setTimeout(r, 60000));
+
+                    // Optimization: Reduce concurrency further if we keep hitting this
+                    continue;
+                }
+
+            if (error.response?.status === 404 || error.message.includes("404")) {
+                console.error(`[FATAL] Route lost. Check API_BASE.`);
+                process.exit(1);
             }
 
-            console.error(`[CRITICAL] Link Interrupted: ${error.message}`);
-            console.error(`[CRITICAL] FULL MESSAGE: ${error}`);
-            process.exit(1);
+            // For general network blips, wait 2s and continue
+            console.error(`[RETRY] Link Interrupted: ${error.message}. Re-establishing in 2s...`);
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
         }
     }
 
