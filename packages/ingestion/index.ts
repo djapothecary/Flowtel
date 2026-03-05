@@ -84,8 +84,8 @@ async function run() {
 
     // --- TEMPORARY TESTING SPEED BUMP ---
     //  running too fast to test stopping/resume, intentionally pausing
-    console.log(`[DEBUG] Sector Sync Complete. Pause for manual interrupt...`);
-    await new Promise(r => setTimeout(r, 2000)); // 2-second window to hit Ctrl+C
+    // console.log(`[DEBUG] Sector Sync Complete. Pause for manual interrupt...`);
+    // await new Promise(r => setTimeout(r, 2000)); // 2-second window to hit Ctrl+C
 
     let currentCursor: string | null = stateRes.rows[0]?.cursor_value || null;
 
@@ -156,7 +156,18 @@ async function run() {
     // 4. FINAL SYNCHRONIZATION
     // Before exiting, we must ensure any final items in the buffer are flushed
     if (buffer.length > 0) {
-        flushTasks.push(limit(() => flushBuffer([...buffer])));
+        const finalSnapshot = [...buffer];
+        const finalCursor = currentCursor; // Capture the actual final cursor
+
+        const finalTask = limit(async () => {
+            await flushBuffer(finalSnapshot);
+            // ARCHITECT'S FIX: Ensure the final state is captured
+            await pool.query(
+                'INSERT INTO ingestion_state (id, cursor_value) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET cursor_value = $1',
+                [finalCursor]
+            );
+        });
+        flushTasks.push(finalTask);
     }
 
     // Wait for all background DB flushes to complete
