@@ -1,0 +1,23 @@
+version: '3.0'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: datasync
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5434:5432" # Host:Container
+
+  ingestion-service:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy # VITAL: Wait for the healthcheck to pass
+    env_file:
+      - .env

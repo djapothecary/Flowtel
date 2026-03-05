@@ -1,0 +1,2 @@
+ADR-002: Implementation Language Selection"
+"While my primary mastery is in the .NET 10 ecosystem, I have opted to deliver this solution in TypeScript to align with Flowtel's stated technical requirements and environment constraints. I have applied Enterprise C# patterns—such as a Scoped Worker Pool and Repository-based persistence—to ensure the TS codebase is modular, resilient, and ready for production-grade scaling.
