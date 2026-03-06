@@ -9,7 +9,7 @@ import pLimit from 'p-limit';
 const API_BASE = process.env.API_URL || 'http://localhost:3000/api/v1';
 const API_KEY = process.env.API_KEY || 'MOCK_KEY';
 const CONCURRENCY_LIMIT = 2;   // Matches DB pool size or API thread count
-const BATCH_FLUSH_SIZE = 1000;
+const BATCH_FLUSH_SIZE = 10000;
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || 'postgresql://postgres@localhost:5434/postgres',
@@ -95,7 +95,7 @@ async function run() {
 
     while(true) {
         try {
-            const url = `${API_BASE}/events?cursor=${currentCursor || ''}&limit=1000`;
+            const url = `${API_BASE}/events?cursor=${currentCursor || ''}&limit=5000`;
 
             const response = await axios.get(url, {
                 headers: {
@@ -156,15 +156,15 @@ async function run() {
             //  Http 429 Too many requests:
             //  indicates that the user has sent too many requests within a specified amount of time
             if (error.response?.status === 429) {
-                    // If we hit a 429, the 'Ref' calls a major timeout.
-                    console.warn(`[GOVERNOR] Sustained limit exceeded. Initiating 60s System Reset...`);
+                // ARCHITECT'S FIX: Use the 'retry-after' header with a 1s safety buffer
+                const retryHeader = error.response.headers['retry-after'];
+                const waitTime = retryHeader ? (parseInt(retryHeader) + 1) * 1000 : 5000;
 
-                    // Wipe current session state if needed and wait
-                    await new Promise(r => setTimeout(r, 60000));
+                console.warn(`[GOVERNOR] 429 Detected. Backing off for ${waitTime/1000}s...`);
+                await new Promise(r => setTimeout(r, waitTime));
+                continue;
+            }
 
-                    // Optimization: Reduce concurrency further if we keep hitting this
-                    continue;
-                }
 
             if (error.response?.status === 404 || error.message.includes("404")) {
                 console.error(`[FATAL] Route lost. Check API_BASE.`);
